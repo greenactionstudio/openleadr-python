@@ -21,7 +21,7 @@ import ssl
 from datetime import datetime, timedelta, timezone
 from functools import partial
 from http import HTTPStatus
-
+import time
 import aiohttp
 from lxml.etree import XMLSyntaxError
 from signxml.exceptions import InvalidSignature
@@ -110,6 +110,7 @@ class OpenADRClient:
                                        cert=cert,
                                        key=key,
                                        passphrase=passphrase)
+        
 
     async def run(self):
         """
@@ -117,9 +118,9 @@ class OpenADRClient:
         """
         # if not hasattr(self, 'on_event'):
         #     raise NotImplementedError("You must implement on_event.")
-        self.loop = asyncio.get_event_loop()
+        self.loop = asyncio.get_event_loop()    
         await self.create_party_registration(ven_id=self.ven_id)
-
+        print('we finished the first resgistration in the run function!')
         if not self.ven_id:
             logger.error("No VEN ID received from the VTN, aborting.")
             await self.stop()
@@ -351,6 +352,7 @@ class OpenADRClient:
                                         report_only=False, profile_name='2.0b',
                                         transport_name='simpleHttp', transport_address=None,
                                         ven_id=None):
+        
         """
         Take the neccessary steps to register this client with the server.
 
@@ -365,6 +367,8 @@ class OpenADRClient:
         :param str ven_id: The ID for this VEN. If you leave this blank,
                            a VEN_ID will be assigned by the VTN.
         """
+        self.loop = asyncio.get_event_loop()
+        
         request_id = utils.generate_id()
         service = 'EiRegisterParty'
         payload = {'ven_name': self.ven_name,
@@ -379,7 +383,10 @@ class OpenADRClient:
         message = self._create_message('oadrCreatePartyRegistration',
                                        request_id=request_id,
                                        **payload)
+        print('Did we ever get into the create_party_registration??11111111111111')
         response_type, response_payload = await self._perform_request(service, message)
+        print(response_type)
+        print('Did we ever get into the create_party_registration??22222222')
         if response_type is None:
             return
         if response_payload['response']['response_code'] != 200:
@@ -393,7 +400,9 @@ class OpenADRClient:
         self.poll_frequency = response_payload.get('requested_oadr_poll_freq',
                                                    timedelta(seconds=10))
         logger.info(f"VEN is now registered with ID {self.ven_id}")
-        logger.info(f"The polling frequency is {self.poll_frequency}")
+        print(f"The polling frequency is {self.poll_frequency}")
+        print(response_type)
+        print(response_payload)
         return response_type, response_payload
 
     async def cancel_party_registration(self):
@@ -443,7 +452,7 @@ class OpenADRClient:
 
     async def register_reports(self, reports):
         """
-        Tell the VTN about our reports. The VTN miht respond with an
+        Tell the VTN about our reports. The VTN might respond with an
         oadrCreateReport message that tells us which reports are to be sent.
         """
         request_id = utils.generate_id()
@@ -711,7 +720,10 @@ class OpenADRClient:
         await self._ensure_client_session()
         logger.debug(f"Client is sending {message}")
         url = f"{self.vtn_url}/{service}"
+        print(url)
+        #url = f"{self.vtn_url}"
         try:
+            print('*********************************11111')
             async with self.client_session.post(url, data=message) as req:
                 content = await req.read()
                 if req.status != HTTPStatus.OK:
@@ -719,12 +731,14 @@ class OpenADRClient:
                                    f"with data {message}: {req.status} {content.decode('utf-8')}")
                     return None, {}
                 logger.debug(content.decode('utf-8'))
+            print('*********************************22222')
         except aiohttp.client_exceptions.ClientConnectorError as err:
             # Could not connect to server
             logger.error(f"Could not connect to server with URL {self.vtn_url}:")
             logger.error(f"{err.__class__.__name__}: {str(err)}")
             return None, {}
         except Exception as err:
+            print('******************************3333333')
             logger.error(f"Request error {err.__class__.__name__}:{err}")
             return None, {}
         if len(content) == 0:
@@ -751,6 +765,8 @@ class OpenADRClient:
                 logger.warning("We got a non-OK OpenADR response from the server: "
                                f"{message_payload['response']['response_code']}: "
                                f"{message_payload['response']['response_description']}")
+        await self.client_session.close()
+        self.client_session = None
         return message_type, message_payload
 
     async def _on_event(self, message):
@@ -803,7 +819,6 @@ class OpenADRClient:
                            for i, event in enumerate(events)
                            if event['response_required'] == 'always'
                            and not utils.determine_event_status(event['active_period']) == 'completed']
-
         if len(event_responses) > 0:
             response = {'response_code': 200,
                         'response_description': 'OK',
@@ -829,6 +844,7 @@ class OpenADRClient:
                 self.received_events.pop(self.received_events.index(event))
 
     async def _poll(self):
+        print('I am polling')
         logger.debug("Now polling for new messages")
         response_type, response_payload = await self.poll()
         if response_type is None:
@@ -867,10 +883,11 @@ class OpenADRClient:
                            f"of type {response_type}, ignoring.")
 
         # Immediately poll again, because there might be more messages
-        await self._poll()
+        #await self._poll()
 
     async def _ensure_client_session(self):
         if not self.client_session:
+            print('->->->->->->->->->->->->->->->->->->->->->->->->->')
             headers = {'content-type': 'application/xml'}
             if self.cert_path:
                 ssl_context = ssl.create_default_context(cafile=self.ca_file,
