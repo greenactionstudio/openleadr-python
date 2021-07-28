@@ -309,3 +309,55 @@ class ReportSpecifier:
 class ReportRequest:
     report_request_id: str
     report_specifier: ReportSpecifier
+
+
+@dataclass
+class QualifiedEventID:
+    event_id: str
+    modification_number:str
+
+@dataclass
+class Eitarget:
+    resource_id: str
+
+@dataclass
+class Component:
+    dstart: datetime
+    duration: timedelta
+
+    
+
+@dataclass
+class Opt:
+    opt_id: str
+    opt_type: str  #Only two option, optIn or optOut
+    opt_reason: str 
+    ven_id: str
+    created_data_time: str
+    request_id: str
+    qualifiedEventID: QualifiedEventID
+    targets: List[Eitarget] 
+    
+    
+    def __init__(self) -> None:
+        pass
+    
+    @staticmethod
+    async def insertOne(self, document) -> None:
+        pass
+        
+    @staticmethod
+    async def insertMany(self, documentList) -> None:
+        pass
+    
+    @staticmethod
+    async def findOne(self, filter):
+        pass
+    
+    @staticmethod
+    async def deleteOne(self, filter):
+        pass
+    
+    @staticmethod
+    async def updateOne(self, filter, updates)->None:
+        pass

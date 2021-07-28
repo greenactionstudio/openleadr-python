@@ -1,13 +1,16 @@
-from logging import exception
-from flask import Flask
+from logging import debug, exception
+from openleadr.messaging import parse_message
+from flask import Flask, request
+from xml.etree.ElementTree import fromstring, XML
 import asyncio
 import threading
 import ssl
 import aiohttp
 import nest_asyncio
+import json
 from openleadr.client import OpenADRClient
 nest_asyncio.apply()
-client = OpenADRClient(ven_name = 'myven', vtn_url='http://localhost:8000/local/webserver')
+client = OpenADRClient(ven_name = 'myven', vtn_url='http://127.0.0.1:8080/OpenADR2/Simple/2.0b')
 app = Flask(__name__)
 
 @app.route('/home')
@@ -16,12 +19,23 @@ def home():
 
 @app.route('/create_party_registration', methods=['POST'])
 async def create_party_registration():
-    #loop = asyncio.get_event_loop()
-    # loop = asyncio.new_event_loop()
-    # loop.run_until_complete(client.create_party_registration())
-    # loop.close()
     await client.create_party_registration()
     return {'status': 200, 'body': 'return from the create party registration'}
+
+
+@app.route('/create_opt', methods =['POST'])
+async def create_opt():
+    _ , message_payload = parse_message(request.data)
+    print(message_payload)
+    return await client.create_opt(message_payload)
+
+
+@app.route('/cancel_opt', methods = ['POST'])
+async def cancel_opt():
+    eventBody = json.loads(request.data)
+    print(eventBody)
+    return await client.cancel_opt(eventBody)
+
 
     
 
