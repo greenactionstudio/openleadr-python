@@ -32,6 +32,7 @@ from openleadr.messaging import create_message, parse_message, \
                                 validate_xml_schema, validate_xml_signature
 from openleadr import utils
 from openleadr.objects import Component
+from threading import Lock
 
 
 logger = logging.getLogger('openleadr')
@@ -75,6 +76,7 @@ class OpenADRClient:
         self.poll_frequency = None
         self.vtn_fingerprint = vtn_fingerprint
         self.debug = debug
+        self.mutex = Lock()
 
         self.reports = []
         self.report_callbacks = {}              # Holds the callbacks for each specific report
@@ -430,7 +432,7 @@ class OpenADRClient:
             opt_reason = eventBody['opt_reason']
             ven_id = self.ven_id
             created_date_time = datetime.utcnow().isoformat()
-            created_date_time='2001-12-17T09:30:47Z'+'Z'
+            created_date_time='2001-12-17T09:30:47Z'
 
             
             
@@ -851,6 +853,7 @@ class OpenADRClient:
     ###########################################################################
 
     async def _perform_request(self, service, message):
+        self.mutex.acquire()
         await self._ensure_client_session()
         logger.debug(f"Client is sending {message}")
         url = f"{self.vtn_url}/{service}"
@@ -900,6 +903,7 @@ class OpenADRClient:
                                f"{message_payload['response']['response_description']}")
         await self.client_session.close()
         self.client_session = None
+        self.mutex.release()
         return message_type, message_payload
 
     async def _on_event(self, message):
