@@ -8,14 +8,22 @@
     {% endif %}
     <ei:venID>{{ ven_id }}</ei:venID>
     {% if vavailability is defined and vavailability is not none %}
-    <xcal:vavailability></xcal:vavailability>
+    <xcal:vavailability>
+    <xcal:components>
+      {% for ava in vavailability.components.available %}
+        {% include 'parts/xcalAvailable.xml' %}
+      {% endfor %}
+    </xcal:components>
+    </xcal:vavailability>
     {% endif %}
-    <ei:createdDateTime>{{ created_date_time|datetimeformat }} </ei:createdDateTime>
+    <ei:createdDateTime>{{ created_date_time|datetimeformat}} </ei:createdDateTime>
     <requestID xmlns="http://docs.oasis-open.org/ns/energyinterop/201110/payloads">{{ request_id }}</requestID>
+    {% if event_id is defined and event_id is not none %}
     <ei:qualifiedEventID>
       <ei:eventID>{{ event_id }}</ei:eventID>
       <ei:modificationNumber>{{ modification_number }}</ei:modificationNumber>
     </ei:qualifiedEventID>
+    {% endif %}
     {% for target in targets %}
     {% include 'parts/eiTarget.xml' %}
     {% endfor %}

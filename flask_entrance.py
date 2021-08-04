@@ -17,7 +17,7 @@ app = Flask(__name__)
 def home():
     return "Hello from the flask!"
 
-@app.route('/create_party_registration', methods=['POST'])
+@app.route('/create_party_registration', methods=['GET'])
 async def create_party_registration():
     await client.create_party_registration()
     return {'status': 200, 'body': 'return from the create party registration'}
@@ -25,16 +25,15 @@ async def create_party_registration():
 
 @app.route('/create_opt', methods =['POST'])
 async def create_opt():
-    _ , message_payload = parse_message(request.data)
-    print(message_payload)
-    return await client.create_opt(message_payload)
+    # _ , message_payload = parse_message(request.data)
+    # print(message_payload)
+    # return await client.create_opt(message_payload)
+    return await client.create_opt(request.data)
 
 
 @app.route('/cancel_opt', methods = ['POST'])
 async def cancel_opt():
-    eventBody = json.loads(request.data)
-    print(eventBody)
-    return await client.cancel_opt(eventBody)
+    return await client.cancel_opt(request.data)
 
 
     

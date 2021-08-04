@@ -55,29 +55,38 @@ def parse_message(data):
     return message_type, message_payload
 
 
-def create_message(message_type, cert=None, key=None, passphrase=None, **message_payload):
+def create_message(message_type, cert=None, key=None, passphrase=None,is_XML = False, **message_payload):
     """
     Create and optionally sign an OpenADR message. Returns an XML string.
     """
-    message_payload = preflight_message(message_type, message_payload)
-    template = TEMPLATES.get_template(f'{message_type}.xml')
-    signed_object = utils.flatten_xml(template.render(**message_payload))
-    envelope = TEMPLATES.get_template('oadrPayload.xml')
-    if cert and key:
-        tree = etree.fromstring(signed_object)
-        signature_tree = SIGNER.sign(tree,
-                                     key=key,
-                                     cert=cert,
-                                     passphrase=utils.ensure_bytes(passphrase),
-                                     reference_uri="#oadrSignedObject",
-                                     signature_properties=_create_replay_protect())
-        signature = etree.tostring(signature_tree).decode('utf-8')
-    else:
-        signature = None
-
-    msg = envelope.render(template=f'{message_type}',
-                          signature=signature,
-                          signed_object=signed_object)
+    try:
+        message_payload = preflight_message(message_type, message_payload)
+        #print('Did we pass the preflight_message???')
+        template = TEMPLATES.get_template(f'{message_type}.xml')
+        #print('Did we get the template???')
+        signed_object = utils.flatten_xml(template.render(**message_payload))
+        #print('Did we pass the flattern message????')
+        envelope = TEMPLATES.get_template('oadrPayload.xml')
+        #print('Did we get the evelope???')
+        if cert and key:
+            tree = etree.fromstring(signed_object)
+            signature_tree = SIGNER.sign(tree,
+                                        key=key,
+                                        cert=cert,
+                                        passphrase=utils.ensure_bytes(passphrase),
+                                        reference_uri="#oadrSignedObject",
+                                        signature_properties=_create_replay_protect())
+            signature = etree.tostring(signature_tree).decode('utf-8')
+        else:
+            signature = None
+        #print('Did we get before render????')
+        msg = envelope.render(template=f'{message_type}',
+                            signature=signature,
+                            signed_object=signed_object)
+        #print('Did we sucessfully render???')
+        #print(msg)
+    except Exception as err:
+            logger.error(f"Internal error in create_message: {err}")
     return msg
 
 

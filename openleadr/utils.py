@@ -47,6 +47,7 @@ def flatten_xml(message):
         line = re.sub(r'\n', '', line)
         line = re.sub(r'\s\s+', ' ', line)
     return "".join(lines)
+    
 
 
 def normalize_dict(ordered_dict):
@@ -241,8 +242,8 @@ def normalize_dict(ordered_dict):
             d[key] = d[key]["date_time"]
 
         # Promote 'properties' item, discard the unused? 'components' item
-        elif isinstance(d[key], dict) and "properties" in d[key] and len(d[key]) <= 2:
-            d[key] = d[key]["properties"]
+        # elif isinstance(d[key], dict) and "properties" in d[key] and len(d[key]) <= 2:
+        #     d[key] = d[key]["properties"]
 
         # Remove all empty dicts
         elif isinstance(d[key], dict) and len(d[key]) == 0:

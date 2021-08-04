@@ -17,6 +17,8 @@
 import asyncio
 import inspect
 import logging
+import xmltodict
+from xml.etree import ElementTree
 import ssl
 from datetime import datetime, timedelta, timezone
 from functools import partial
@@ -33,6 +35,7 @@ from openleadr.messaging import create_message, parse_message, \
 from openleadr import utils
 from openleadr.objects import Component
 from threading import Lock
+from dict2xml import dict2xml
 
 
 logger = logging.getLogger('openleadr')
@@ -126,7 +129,6 @@ class OpenADRClient:
         #     raise NotImplementedError("You must implement on_event.")
         self.loop = asyncio.get_event_loop()    
         await self.create_party_registration(ven_id=self.ven_id)
-        print('we finished the first resgistration in the run function!')
         if not self.ven_id:
             logger.error("No VEN ID received from the VTN, aborting.")
             await self.stop()
@@ -374,7 +376,7 @@ class OpenADRClient:
         :param str ven_id: The ID for this VEN. If you leave this blank,
                            a VEN_ID will be assigned by the VTN.
         """
-        self.loop = asyncio.get_event_loop()
+        #self.loop = asyncio.get_event_loop()
         
         request_id = utils.generate_id()
         service = 'EiRegisterParty'
@@ -390,10 +392,7 @@ class OpenADRClient:
         message = self._create_message('oadrCreatePartyRegistration',
                                        request_id=request_id,
                                        **payload)
-        print('Did we ever get into the create_party_registration??11111111111111')
         response_type, response_payload = await self._perform_request(service, message)
-        print(response_type)
-        print('Did we ever get into the create_party_registration??22222222')
         if response_type is None:
             return
         if response_payload['response']['response_code'] != 200:
@@ -408,8 +407,6 @@ class OpenADRClient:
                                                    timedelta(seconds=10))
         logger.info(f"VEN is now registered with ID {self.ven_id}")
         print(f"The polling frequency is {self.poll_frequency}")
-        print(response_type)
-        print(response_payload)
         return response_type, response_payload
 
     async def cancel_party_registration(self):
@@ -425,38 +422,50 @@ class OpenADRClient:
             #2. un-Avaliability of several eiTarget(its just evse itself) time period
             #3. Opt-in or Opt-out for specific eventId and eiTarget
         try:
-            if not eventBody:
-                raise ValueError('No event body found')
-            opt_id = eventBody['opt_id']
-            opt_type = eventBody['opt_type']
-            opt_reason = eventBody['opt_reason']
-            ven_id = self.ven_id
-            created_date_time = datetime.utcnow().isoformat()
-            created_date_time='2001-12-17T09:30:47Z'
+            # if not eventBody:
+            #     raise ValueError('No event body found')
+            # opt_id = eventBody['opt_id']
+            # opt_type = eventBody['opt_type']
+            # opt_reason = eventBody['opt_reason']
+            # ven_id = self.ven_id
+            # created_date_time = datetime.utcnow().isoformat()
+            # created_date_time='2001-12-17T09:30:47Z'
 
             
             
-            # components = None
-            # if eventBody['vavailability']:
-            #     components = {'dtstart': eventBody['vavailability']['dtstart'], 
-            #                   'duration':eventBody['vavailability']['duration']}
-            request_id = utils.generate_id()
+            # # components = None
+            # # if eventBody['vavailability']:
+            # #     components = {'dtstart': eventBody['vavailability']['dtstart'], 
+            # #                   'duration':eventBody['vavailability']['duration']}
+            # request_id = utils.generate_id()
             
         
-            payload = {'opt_id': opt_id, 'opt_type': opt_type, 'opt_reason': opt_reason, 
-                    'ven_id': ven_id, 
-                    'created_date_time': created_date_time, 'request_id': request_id, 
-                    'modification_number': 0,
-                    'event_id': 0,
-                    'targets': [{'ven_id': self.ven_id}]
-                    }
-            print('oadrCreateOpt payload is: ')
-            print(payload)
-            service = 'EiOpt'
-            message = self._create_message('oadrCreateOpt', **payload)
-            response_type, _ = await self._perform_request(service, message)
+            # payload = {'opt_id': opt_id, 'opt_type': opt_type, 'opt_reason': opt_reason, 
+            #         'ven_id': ven_id, 
+            #         'created_date_time': created_date_time, 'request_id': request_id, 
+            #         'targets': [{'ven_id': self.ven_id}]
+            #         }
+            # print('oadrCreateOpt payload is: ')
+            # print(payload)
+            # service = 'EiOpt'
+            # message = self._create_message('oadrCreateOpt', **payload)
+            message_xml = eventBody
+            _ ,message_dict = parse_message(message_xml)
+            print(message_dict)
+            for target in message_dict['targets']:
+                target['ven_id'] = self.ven_id
+            message_dict['ven_id'] = self.ven_id
+            if not isinstance(message_dict['vavailability']['components']['available'], list):
+                message_dict['vavailability']['components']['available'] = [message_dict['vavailability']['components']['available']]
+            # for available in message_dict['vavailability']['components']['available']:
+            #      available['properties']['dtstart'] = datetime.utcnow().isoformat()+'Z'
+            # message_dict['created_date_time'] = datetime.utcnow().isoformat()+'Z'
             
-            print('we have sent the createOPT=====')
+            
+            message_xml= self._create_message('oadrCreateOpt', **message_dict)
+            response_type, _ = await self._perform_request('EiOpt', message_xml)
+            print('successfully send the create_opt message')
+            
             if response_type!='oadrCreatedOpt':
                 raise ValueError('Invalid reposne type in odarCreateOpt')
         except Exception as err:
@@ -469,26 +478,20 @@ class OpenADRClient:
     # This function can only be triggered manually by us to cancel the Opt informastion we send to the VTN before
     # In this case the OPT_id is the only thing we need
     # No need to save the opt_id in the DB currently, because we trigger this function manually
-        print("We are in the cancel_opt function now!!!")
         try:
-            if not eventBody:
-                raise ValueError('No eventBody found')
-            opt_id = eventBody['optID']
-            request_id = eventBody['requestID']
-            if not opt_id:
-                raise ValueError('No opt_id found in the message body')
-            payload = {'request_id': request_id,
-                        'opt_id': opt_id,
-                        'ven_id': self.ven_id}
-            
+            message_xml = eventBody
+            print(message_xml)
+            _ ,message_dict = parse_message(message_xml)
+            message_dict['request_id'] = utils.generate_id()
+            message_dict['ven_id'] = self.ven_id
+            print(message_dict)
+            message_xml= self._create_message('oadrCancelOpt', **message_dict)
             service = 'EiOpt'
-            message = self._create_message('oadrCancelOpt', **payload)
-            response_type, _ = await self._perform_request(service, message)
-            
+            response_type, _ = await self._perform_request(service, message_xml)
             
             if response_type!='oadrCanceledOpt':
                 raise ValueError('Invalid reposne type in odarCancelOpt')
-            
+            print("Successfully send out the cancel opt message")
         except Exception as err:
             logger.error(f"Internal error in oadrCancelOpt: {err}")
         
@@ -859,7 +862,7 @@ class OpenADRClient:
         url = f"{self.vtn_url}/{service}"
         print(url)
         try:
-            print('*********************************11111')
+            print('*********************************************')
             async with self.client_session.post(url, data=message) as req:
                 content = await req.read()
                 if req.status != HTTPStatus.OK:
@@ -867,14 +870,12 @@ class OpenADRClient:
                                    f"with data {message}: {req.status} {content.decode('utf-8')}")
                     return None, {}
                 logger.debug(content.decode('utf-8'))
-            print('*********************************22222')
         except aiohttp.client_exceptions.ClientConnectorError as err:
             # Could not connect to server
             logger.error(f"Could not connect to server with URL {self.vtn_url}:")
             logger.error(f"{err.__class__.__name__}: {str(err)}")
             return None, {}
         except Exception as err:
-            print('******************************3333333')
             logger.error(f"Request error {err.__class__.__name__}:{err}")
             return None, {}
         if len(content) == 0:
