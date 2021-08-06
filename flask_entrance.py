@@ -9,8 +9,16 @@ import aiohttp
 import nest_asyncio
 import json
 from openleadr.client import OpenADRClient
+from openleadr.utils import report_callback
+from openleadr.enums import MEASUREMENTS
+import logging
+## set the defualt logging config to DEBUG mode
+logging.basicConfig(level = logging.WARNING)
+
 nest_asyncio.apply()
 client = OpenADRClient(ven_name = 'myven', vtn_url='http://127.0.0.1:8080/OpenADR2/Simple/2.0b')
+client.add_report(report_callback,client.ven_id, report_name = 'TELEMETRY_STATUS')
+client.add_report(report_callback,client.ven_id, report_name = 'TELEMETRY_USAGE', measurement= MEASUREMENTS.POWER_REAL)
 app = Flask(__name__)
 
 @app.route('/home')

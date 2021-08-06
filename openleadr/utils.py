@@ -811,3 +811,7 @@ def increment_event_modification_number(event):
     modification_number = getmember(event, 'event_descriptor.modification_number') + 1
     setmember(event, 'event_descriptor.modification_number', modification_number)
     return modification_number
+
+
+def report_callback(date_from=None, date_to=None, sampling_interval=None):
+    return [(datetime.utcnow(), 3.1415926)]
