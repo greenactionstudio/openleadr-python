@@ -25,6 +25,8 @@ from functools import partial
 from http import HTTPStatus
 import time
 import aiohttp
+import pytz
+import tzlocal
 from lxml.etree import XMLSyntaxError
 from signxml.exceptions import InvalidSignature
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -104,6 +106,7 @@ class OpenADRClient:
         self.passphrase = passphrase
         self.ca_file = ca_file
         self.allow_jitter = allow_jitter
+        self.local_timezone = tzlocal.get_localzone()
 
         if cert and key:
             with open(cert, 'rb') as file:
@@ -319,7 +322,7 @@ class OpenADRClient:
 
         if not report:
             report_specifier_id = report_specifier_id or utils.generate_id()
-            report = objects.Report(created_date_time=datetime.now(),
+            report = objects.Report(created_date_time=datetime.now(timezone.utc),
                                     report_name=report_name,
                                     report_specifier_id=report_specifier_id,
                                     data_collection_mode=data_collection_mode)
@@ -642,8 +645,14 @@ class OpenADRClient:
 
             callback = partial(self.update_report, report_request_id=report_request_id)
             reporting_interval = report_back_duration or granularity
-            next_run_time = dtstart if report_interval else undefined
-            #next_run_time = undefined
+            if report_interval:
+                utc_dtstart = dtstart.replace(tzinfo = None)
+                local_dtstart = utc_dtstart.replace(tzinfo = pytz.utc).astimezone(self.local_timezone).replace(tzinfo=None)
+                next_run_time = local_dtstart+timedelta(seconds=6)
+            else:
+                next_run_time = undefined
+            print('Next run time is: ')
+            print(next_run_time)
             
             ##if this is a one shot report, set the next_run_time as now and set interval as one day
             if reporting_interval == timedelta(0):
@@ -653,7 +662,6 @@ class OpenADRClient:
                 reporting_interval = timedelta(days=1)
                 next_run_time = datetime.now()+timedelta(seconds=6)
                 ## add 6 seconds in case we missed this job
-                
             job = self.scheduler.add_job(func=callback,
                                         trigger='interval',
                                         id = report_request_id,
@@ -762,24 +770,32 @@ class OpenADRClient:
                                                             report_payload=report_payload))
         outgoing_report.intervals = intervals
         logger.info(f"The number of intervals in the report is now {len(outgoing_report.intervals)}")
-
+        
+        logger.info("Report will be sent now.")
+        await self.pending_reports.put(outgoing_report)
+        print('after we add the outgoing_report, its length is:')
+        print(self.pending_reports.qsize())
+        
+        
+        
         # Figure out if the report is complete after this sampling
-        if data_collection_mode == 'incremental' and report_back_duration is not None\
-                and report_back_duration > granularity:
-            report_interval = report_back_duration.total_seconds()
-            sampling_interval = granularity.total_seconds()
-            expected_len = len(report_request['r_ids']) * int(report_interval / sampling_interval)
-            if len(outgoing_report.intervals) == expected_len:
-                logger.info("The report is now complete with all the values. Will queue for sending.")
-                await self.pending_reports.put(self.incomplete_reports.pop(report_request_id))
-            else:
-                logger.debug("The report is not yet complete, will hold until it is.")
-                self.incomplete_reports[report_request_id] = outgoing_report
-        else:
-            logger.info("Report will be sent now.")
-            await self.pending_reports.put(outgoing_report)
-            print('after we add the outgoing_report, its length is:')
-            print(self.pending_reports.qsize())
+        # if data_collection_mode == 'incremental' and report_back_duration is not None\
+        #         and report_back_duration > granularity:
+        #     report_interval = report_back_duration.total_seconds()
+        #     sampling_interval = granularity.total_seconds()
+        #     expected_len = len(report_request['r_ids']) * int(report_interval / sampling_interval)
+        #     if len(outgoing_report.intervals) == expected_len:
+        #         logger.info("The report is now complete with all the values. Will queue for sending.")
+        #         await self.pending_reports.put(self.incomplete_reports.pop(report_request_id))
+        #     else:
+        #         logger.debug("The report is not yet complete, will hold until it is.")
+        #         self.incomplete_reports[report_request_id] = outgoing_report
+        # else:
+        #     logger.info("Report will be sent now.")
+        #     await self.pending_reports.put(outgoing_report)
+        #     print('after we add the outgoing_report, its length is:')
+        #     print(self.pending_reports.qsize())
+
 
     async def cancel_report(self, payload):
         """
@@ -788,18 +804,21 @@ class OpenADRClient:
         #add scheduler(in the create_report) ->pending_report(added in the update_report) -> send out the report(in the _report_queue_worker)
         report_request_id = payload['report_request_id']
         report_to_follow = payload['report_to_follow']
+        request_id = payload['request_id']
         job_id = report_request_id
         report_request = utils.find_by(self.report_requests, 'report_request_id', report_request_id)
         if not report_to_follow:
             self._cancel_report(job_id)
             self.report_requests.remove(report_request)
         else:
-            utils
+            ## Do something if there is report to follow
+            pass
         service = 'EiReport'
         message_type = 'oadrCanceledReport'
         message_payload = {'pending_reports': [{'report_request_id': utils.getmember(report, 'report_request_id')} for report in self.report_requests]}
         message = self._create_message(message_type, response={'response_code': 200,
-                                                                      'response_description': 'OK'},
+                                                               'response_description': 'OK',
+                                                               'request_id':request_id},
                                                             ven_id=self.ven_id,
                                                             **message_payload)
         await self._perform_request(service, message)
@@ -807,8 +826,10 @@ class OpenADRClient:
     
     
     def _cancel_report(self, job_id):
-        self.scheduler.remove_job(job_id)
-            
+        try:
+            self.scheduler.remove_job(job_id)
+        except Exception as err:
+            logger.warning(f"Internal error in the _cancel_report fucntion: {err}")
         
         
 
@@ -824,8 +845,7 @@ class OpenADRClient:
                 print('Did we ever get a report from the pending_reports queue')
                 print(report)
                 ##If this is not a one shot report and it has expired. we remove the job and don't send updateReport
-                if report['duration']!=timedelta(0) and report['dtstart']+report['duration'] < datetime.now():
-                    print('1')
+                if report['duration']!=timedelta(0) and report['dtstart']+report['duration'] < datetime.now(timezone.utc):
                     self._cancel_report(report['report_request_id'])
                 else:
                     service = 'EiReport'
@@ -840,7 +860,7 @@ class OpenADRClient:
                     except Exception as err:
                         logger.error(f"Unable to send the report to the VTN. Error: {err}")
                     else:
-                        if 'cancel_report' in response_payload:
+                        if response_type=='oadrCancelReport':
                             await self.cancel_report(response_payload['cancel_report'])
                         
                         #If this is a one shot report. We remove this job after we send out the updateReport
@@ -1072,7 +1092,9 @@ class OpenADRClient:
             pass
         
         elif response_type=='oadrCancelReport':
-            await self.cancel_report(response_payload['cancel_report'])
+            print('The cancel report payload is: ')
+            print(response_payload)
+            await self.cancel_report(response_payload)
         else:
             logger.warning(f"No handler implemented for incoming message "
                            f"of type {response_type}, ignoring.")
