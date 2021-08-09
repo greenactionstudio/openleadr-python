@@ -436,33 +436,6 @@ class OpenADRClient:
             #2. un-Avaliability of several eiTarget(its just evse itself) time period
             #3. Opt-in or Opt-out for specific eventId and eiTarget
         try:
-            # if not eventBody:
-            #     raise ValueError('No event body found')
-            # opt_id = eventBody['opt_id']
-            # opt_type = eventBody['opt_type']
-            # opt_reason = eventBody['opt_reason']
-            # ven_id = self.ven_id
-            # created_date_time = datetime.utcnow().isoformat()
-            # created_date_time='2001-12-17T09:30:47Z'
-
-            
-            
-            # # components = None
-            # # if eventBody['vavailability']:
-            # #     components = {'dtstart': eventBody['vavailability']['dtstart'], 
-            # #                   'duration':eventBody['vavailability']['duration']}
-            # request_id = utils.generate_id()
-            
-        
-            # payload = {'opt_id': opt_id, 'opt_type': opt_type, 'opt_reason': opt_reason, 
-            #         'ven_id': ven_id, 
-            #         'created_date_time': created_date_time, 'request_id': request_id, 
-            #         'targets': [{'ven_id': self.ven_id}]
-            #         }
-            # print('oadrCreateOpt payload is: ')
-            # print(payload)
-            # service = 'EiOpt'
-            # message = self._create_message('oadrCreateOpt', **payload)
             message_xml = eventBody
             _ ,message_dict = parse_message(message_xml)
             print(message_dict)
@@ -471,9 +444,6 @@ class OpenADRClient:
             message_dict['ven_id'] = self.ven_id
             if not isinstance(message_dict['vavailability']['components']['available'], list):
                 message_dict['vavailability']['components']['available'] = [message_dict['vavailability']['components']['available']]
-            # for available in message_dict['vavailability']['components']['available']:
-            #      available['properties']['dtstart'] = datetime.utcnow().isoformat()+'Z'
-            # message_dict['created_date_time'] = datetime.utcnow().isoformat()+'Z'
             
             
             message_xml= self._create_message('oadrCreateOpt', **message_dict)
@@ -617,10 +587,10 @@ class OpenADRClient:
             print(granularity)
             report_interval = report_request['report_specifier'].get('report_interval')
             if report_interval:
-                dtstart = report_interval['dtstart']
-                duration = report_interval['duration']
-            print(dtstart)
-            print(duration)
+                dtstart = report_interval['properties']['dtstart']
+                duration = report_interval['properties']['duration']
+                print(dtstart)
+                print(duration)
             # Check if this report actually exists
             report = utils.find_by(self.reports, 'report_specifier_id', report_specifier_id)
             if not report:
@@ -673,6 +643,7 @@ class OpenADRClient:
             callback = partial(self.update_report, report_request_id=report_request_id)
             reporting_interval = report_back_duration or granularity
             next_run_time = dtstart if report_interval else undefined
+            #next_run_time = undefined
             
             ##if this is a one shot report, set the next_run_time as now and set interval as one day
             if reporting_interval == timedelta(0):
@@ -854,6 +825,7 @@ class OpenADRClient:
                 print(report)
                 ##If this is not a one shot report and it has expired. we remove the job and don't send updateReport
                 if report['duration']!=timedelta(0) and report['dtstart']+report['duration'] < datetime.now():
+                    print('1')
                     self._cancel_report(report['report_request_id'])
                 else:
                     service = 'EiReport'
@@ -874,8 +846,8 @@ class OpenADRClient:
                         #If this is a one shot report. We remove this job after we send out the updateReport
                         if report['duration']==timedelta(0):
                             self._cancel_report(report['report_request_id'])
-        except asyncio.CancelledError:
-            return
+        except Exception as err:
+            logger.warning(f"Internal error in the report queue worker fucntion: {err}")
 
     ###########################################################################
     #                                                                         #
