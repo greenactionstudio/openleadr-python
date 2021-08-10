@@ -279,6 +279,7 @@ class Report:
 
     dtstart: datetime = None                # For delivering values
     duration: timedelta = None              # For delivering values
+    report_back_duration: timedelta = None  # Used to check if this is a one shot report
     intervals: List[ReportInterval] = None  # For delivering values
     data_collection_mode: str = 'incremental'
 

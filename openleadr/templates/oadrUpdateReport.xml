@@ -17,6 +17,9 @@
           <xcal:dtstart>
             <xcal:date-time>{{ interval.dtstart|datetimeformat }}</xcal:date-time>
           </xcal:dtstart>
+          <xcal:duration>
+							<xcal:duration>{{ interval.duration|timedeltaformat }}</xcal:duration>
+					</xcal:duration>
           <oadr:oadrReportPayload>
             <ei:rID>{{ interval.report_payload.r_id }}</ei:rID>
             {% if interval.report_payload.confidence is defined and interval.report_payload.confidence is not none %}
