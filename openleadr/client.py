@@ -158,6 +158,7 @@ class OpenADRClient:
 
         self.scheduler.add_job(self._poll,
                                trigger='cron',
+                               max_instances=3,
                                **cron_config)
         self.scheduler.add_job(self._event_cleanup,
                                trigger='interval',
@@ -551,6 +552,7 @@ class OpenADRClient:
         self.mutex.acquire()
         await self._perform_request(service, message)
         self.mutex.release()
+        
     async def register_reports(self, reports):
         """
         Tell the VTN about our reports. The VTN might respond with an
@@ -667,7 +669,7 @@ class OpenADRClient:
             if report_interval:
                 utc_dtstart = dtstart.replace(tzinfo = None)
                 local_dtstart = utc_dtstart.replace(tzinfo = pytz.utc).astimezone(self.local_timezone).replace(tzinfo=None)
-                next_run_time = local_dtstart+timedelta(seconds=6)
+                next_run_time = local_dtstart+timedelta(seconds=6)+granularity
             else:
                 next_run_time = undefined
             print('Next run time is: ')
@@ -681,14 +683,16 @@ class OpenADRClient:
                 reporting_interval = timedelta(days=1)
                 next_run_time = datetime.now()+timedelta(seconds=6)
                 ## add 6 seconds in case we missed this job
+            cron_config = utils.cron_config(reporting_interval)
             job = self.scheduler.add_job(func=callback,
-                                        trigger='interval',
+                                        trigger='cron',
                                         id = report_request_id,
                                         # change I made here, Undefined from jinja2 is not a correct accepted type here for next_run_time
                                         # Use the undefined from the apscheduler.util instead
                                         # more details and info please read the source code of add_job in AsyncIoScheduler
                                         next_run_time= next_run_time,
-                                        seconds = reporting_interval.total_seconds())
+                                        max_instances=3,
+                                        **cron_config)
 
             self.report_requests.append({'report_request_id': report_request_id,
                                         'report_to_follow': False,
@@ -699,28 +703,40 @@ class OpenADRClient:
                                         'dtstart': dtstart if report_interval else datetime.now(),
                                         'duration': duration if report_interval else timedelta(0),
                                         'job': job})
+            return True
         except Exception as err:
             logger.warning(f"Internal error in the create report fucntion: {err}")
 
 
-    async def created_report(self, response_payload):
+    async def created_report(self, response_payload, response_code=200):
     #perform oadrCreatedReport message back to VTN after report added into the pending_reports
         try:
-            service = 'EiReport'
-            print(response_payload)
-            request_id = response_payload['request_id']
-            # Send the oadrCreatedReport message
-            message_type = 'oadrCreatedReport'
-            message_payload = {'pending_reports': [{'report_request_id': utils.getmember(report, 'report_request_id')} for report in self.report_requests]}
-            message = self._create_message(message_type, response={'response_code': 200,
-                                                                'response_description': 'OK',
-                                                                'request_id': request_id},
-                                                                ven_id=self.ven_id,
-                                                                **message_payload)
-            print('begin to send the oadrCreatedReport')
-            self.mutex.acquire()
-            await self._perform_request(service, message)
-            self.mutex.release()
+            if response_code ==452:
+                service = 'EiReport'
+                response = {'response_code': 452,
+                            'response_description': 'Not OK',
+                            'request_id': response_payload['request_id']
+                            }
+                msg = self._create_message('oadrCreatedReport', response=response, ven_id=self.ven_id)
+                self.mutex.acquire()
+                await self._perform_request(service, msg)
+                self.mutex.release()
+            else:
+                service = 'EiReport'
+                print(response_payload)
+                request_id = response_payload['request_id']
+                # Send the oadrCreatedReport message
+                message_type = 'oadrCreatedReport'
+                message_payload = {'pending_reports': [{'report_request_id': utils.getmember(report, 'report_request_id')} for report in self.report_requests]}
+                message = self._create_message(message_type, response={'response_code': 200,
+                                                                    'response_description': 'OK',
+                                                                    'request_id': request_id},
+                                                                    ven_id=self.ven_id,
+                                                                    **message_payload)
+                print('begin to send the oadrCreatedReport')
+                self.mutex.acquire()
+                await self._perform_request(service, message)
+                self.mutex.release()
             
         except Exception as err:
             logger.warning(f"Internal error in created report funciton: {err}")
@@ -790,10 +806,22 @@ class OpenADRClient:
                     result = [(datetime.now(timezone.utc), result)]
                 for _ , value in result:
                     logger.info(f"Adding {dtstart}, {value} to report")
-                    report_payload = objects.ReportPayload(r_id=r_id, value=value)
-                    intervals.append(objects.ReportInterval(dtstart=dtstart,
-                                                            duration= report_request['duration'] if report_request['duration'] else timedelta(0),
-                                                            report_payload=report_payload))
+                    if granularity.total_seconds()>0:
+                        report_payload = objects.ReportPayload(r_id=r_id, value=value)
+                        for i in range(int(report_back_duration.total_seconds()//granularity.total_seconds())):
+                            print('after the 2 min adjust, the dtstart is: ')
+                            print(dtstart)
+                            intervals.append(objects.ReportInterval(dtstart=dtstart,
+                                                                    duration= report_request['duration'] if report_request['duration'] else timedelta(0),
+                                                                    report_payload=report_payload))
+                            dtstart = dtstart + granularity
+                            report_request['dtstart'] = dtstart
+                            
+                    else:
+                        report_payload = objects.ReportPayload(r_id=r_id, value=value)
+                        intervals.append(objects.ReportInterval(dtstart=dtstart,
+                                                                    duration= report_request['duration'] if report_request['duration'] else timedelta(0),
+                                                                    report_payload=report_payload))
         outgoing_report.intervals = intervals
         logger.info(f"The number of intervals in the report is now {len(outgoing_report.intervals)}")
         
@@ -1107,12 +1135,16 @@ class OpenADRClient:
 
         elif response_type == 'oadrCreateReport':
             print('recieve oadrCreateReport.....')
+            created = True
             if 'report_requests' in response_payload:
                 print('begin to create_report......')
                 for report_request in response_payload['report_requests']:
-                    await self.create_report(report_request)
+                    created = created and await self.create_report(report_request)
             print('begin to created_report.....')
-            await self.created_report(response_payload)
+            if not created:
+                await self.created_report(response_payload, 452)
+            else:
+                await self.created_report(response_payload)
                     
 
         elif response_type == 'oadrRegisterReport':
