@@ -783,6 +783,8 @@ class OpenADRClient:
                                                                     duration= report_request['duration'] if report_request['duration'] else timedelta(0),
                                                                     report_payload=report_payload))
                             interval_start = interval_start + granularity
+                            report_request['dtstart'] = interval_start
+                            
 
                     else:
                         report_payload = objects.ReportPayload(r_id=r_id, value=value)
