@@ -645,7 +645,8 @@ class OpenADRClient:
                 requested_r_ids.append(r_id)
 
             callback = partial(self.update_report, report_request_id=report_request_id)
-            reporting_interval = report_back_duration or granularity
+            #if reporting_interval only related to report_back_duration??
+            reporting_interval = report_back_duration
             if report_interval:
                 utc_dtstart = dtstart.replace(tzinfo = None)
                 local_dtstart = utc_dtstart.replace(tzinfo = pytz.utc).astimezone(self.local_timezone).replace(tzinfo=None)
@@ -658,8 +659,6 @@ class OpenADRClient:
             ##if this is a one shot report, set the next_run_time as now and set interval as one day
             if reporting_interval == timedelta(0):
                 print('this is a one shot report')
-                
-                
                 reporting_interval = timedelta(days=1)
                 next_run_time = datetime.now()+timedelta(seconds=4)
                 ## add 6 seconds in case we missed this job
@@ -771,7 +770,10 @@ class OpenADRClient:
                     result = [(datetime.now(timezone.utc), result)]
                 for _ , value in result:
                     logger.info(f"Adding {dtstart}, {value} to report")
-                    if granularity.total_seconds()>0 and report_name=='TELEMETRY_USAGE':
+                    if granularity.total_seconds()>0 and report_back_duration.total_seconds()>0 and report_name=='TELEMETRY_USAGE':
+                        print('this is telemetry usage')
+                        print(report_back_duration.total_seconds())
+                        print(granularity.total_seconds())
                         report_payload = objects.ReportPayload(r_id=r_id, value=value)
                         interval_start = dtstart
                         for i in range(int(report_back_duration.total_seconds()//granularity.total_seconds())):
@@ -892,6 +894,7 @@ class OpenADRClient:
                         
                         #If this is a one shot report. We remove this job after we send out the updateReport
                         if report['report_back_duration']==timedelta(0):
+                            print('we cancel the one shot report here')
                             self._cancel_report(report['report_request_id'])
         except Exception as err:
             logger.warning(f"Internal error in the report queue worker fucntion: {err}")
