@@ -16,7 +16,7 @@
     </xcal:components>
     </xcal:vavailability>
     {% endif %}
-    <ei:createdDateTime>{{ created_date_time|datetimeformat}} </ei:createdDateTime>
+    <ei:createdDateTime>{{ created_date_time|datetimeformat}}</ei:createdDateTime>
     <requestID xmlns="http://docs.oasis-open.org/ns/energyinterop/201110/payloads">{{ request_id }}</requestID>
     {% if event_id is defined and event_id is not none %}
     <ei:qualifiedEventID>

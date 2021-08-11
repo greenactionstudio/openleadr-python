@@ -43,6 +43,11 @@ async def create_opt():
 async def cancel_opt():
     return await client.cancel_opt(request.data)
 
+@app.route('/stop')
+async def stop_server():
+    await client.stop()
+    return {'status': 200, 'body': 'The VEN has been stopped.'}
+
 
     
 

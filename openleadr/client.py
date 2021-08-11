@@ -154,12 +154,12 @@ class OpenADRClient:
             logger.warning("Polling with intervals of more than 24 hours is not supported. "
                            "Will use 24 hours as the polling interval.")
             self.poll_frequency = timedelta(hours=24)
-        cron_config = utils.cron_config(self.poll_frequency, randomize_seconds=self.allow_jitter)
+        #cron_config = utils.cron_config(self.poll_frequency, randomize_seconds=self.allow_jitter)
 
         self.scheduler.add_job(self._poll,
-                               trigger='cron',
-                               max_instances=3,
-                               **cron_config)
+                               trigger='interval',
+                               misfire_grace_time=None,
+                               seconds = self.poll_frequency.total_seconds())
         self.scheduler.add_job(self._event_cleanup,
                                trigger='interval',
                                seconds=300)
@@ -356,9 +356,7 @@ class OpenADRClient:
         """
         service = 'OadrPoll'
         message = self._create_message('oadrPoll', ven_id=self.ven_id)
-        self.mutex.acquire()
         response_type, response_payload = await self._perform_request(service, message)
-        self.mutex.release()
         return response_type, response_payload
 
     ###########################################################################
@@ -374,9 +372,7 @@ class OpenADRClient:
         request_id = utils.generate_id()
         service = 'EiRegisterParty'
         message = self._create_message('oadrQueryRegistration', request_id=request_id)
-        self.mutex.acquire()
         response_type, response_payload = await self._perform_request(service, message)
-        self.mutex.release()
         return response_type, response_payload
 
     async def create_party_registration(self, http_pull_model=True, xml_signature=False,
@@ -414,9 +410,7 @@ class OpenADRClient:
         message = self._create_message('oadrCreatePartyRegistration',
                                        request_id=request_id,
                                        **payload)
-        self.mutex.acquire()
         response_type, response_payload = await self._perform_request(service, message)
-        self.mutex.release()
         if response_type is None:
             return
         if response_payload['response']['response_code'] != 200:
@@ -457,9 +451,7 @@ class OpenADRClient:
             
             
             message_xml= self._create_message('oadrCreateOpt', **message_dict)
-            self.mutex.acquire()
             response_type, _ = await self._perform_request('EiOpt', message_xml)
-            self.mutex.release()
             print('successfully send the create_opt message')
             
             if response_type!='oadrCreatedOpt':
@@ -483,9 +475,7 @@ class OpenADRClient:
             print(message_dict)
             message_xml= self._create_message('oadrCancelOpt', **message_dict)
             service = 'EiOpt'
-            self.mutex.acquire()
             response_type, _ = await self._perform_request(service, message_xml)
-            self.mutex.release()
             
             if response_type!='oadrCanceledOpt':
                 raise ValueError('Invalid reposne type in odarCancelOpt')
@@ -511,9 +501,7 @@ class OpenADRClient:
                    'reply_limit': reply_limit}
         message = self._create_message('oadrRequestEvent', **payload)
         service = 'EiEvent'
-        self.mutex.acquire()
         response_type, response_payload = await self._perform_request(service, message)
-        self.mutex.release()
         return response_type, response_payload
 
     async def created_event(self, request_id, event_id, opt_type, modification_number=0):
@@ -532,9 +520,7 @@ class OpenADRClient:
                                         'modification_number': modification_number,
                                         'opt_type': opt_type}]}
         message = self._create_message('oadrCreatedEvent', **payload)
-        self.mutex.acquire()
         response_type, response_payload = await self._perform_request(service, message)
-        self.mutex.release()
 
     ###########################################################################
     #                                                                         #
@@ -549,9 +535,7 @@ class OpenADRClient:
                                                                       'response_description': 'OK'},
                                                             ven_id=self.ven_id,
                                                             request_id=message['request_id'])
-        self.mutex.acquire()
         await self._perform_request(service, message)
-        self.mutex.release()
         
     async def register_reports(self, reports):
         """
@@ -569,9 +553,7 @@ class OpenADRClient:
 
         service = 'EiReport'
         message = self._create_message('oadrRegisterReport', **payload)
-        self.mutex.acquire()
         response_type, response_payload = await self._perform_request(service, message)
-        self.mutex.release()
 
         # Handle the subscriptions that the VTN is interested in.
         # We only send back the oadrCreatedReport here if we recieve any report_requests from oadrRegisteredReport
@@ -588,9 +570,7 @@ class OpenADRClient:
                                                                 'request_id': request_id},
                                                                 ven_id=self.ven_id,
                                                                 **message_payload)
-            self.mutex.acquire()
             response_type, response_payload = await self._perform_request(service, message)
-            self.mutex.release()
 
 
     async def create_report(self, report_request):
@@ -621,7 +601,7 @@ class OpenADRClient:
                 logger.error(f"A non-existant report with report_specifier_id "
                             f"{report_specifier_id} was requested.")
                 return False
-
+            
             # Check and collect the requested r_ids for this report
             requested_r_ids = []
             for specifier_payload in report_request['report_specifier']['specifier_payloads']:
@@ -669,7 +649,7 @@ class OpenADRClient:
             if report_interval:
                 utc_dtstart = dtstart.replace(tzinfo = None)
                 local_dtstart = utc_dtstart.replace(tzinfo = pytz.utc).astimezone(self.local_timezone).replace(tzinfo=None)
-                next_run_time = local_dtstart+timedelta(seconds=6)+granularity
+                next_run_time = local_dtstart+timedelta(seconds=4)
             else:
                 next_run_time = undefined
             print('Next run time is: ')
@@ -681,18 +661,17 @@ class OpenADRClient:
                 
                 
                 reporting_interval = timedelta(days=1)
-                next_run_time = datetime.now()+timedelta(seconds=6)
+                next_run_time = datetime.now()+timedelta(seconds=4)
                 ## add 6 seconds in case we missed this job
-            cron_config = utils.cron_config(reporting_interval)
             job = self.scheduler.add_job(func=callback,
-                                        trigger='cron',
+                                        trigger='interval',
                                         id = report_request_id,
                                         # change I made here, Undefined from jinja2 is not a correct accepted type here for next_run_time
                                         # Use the undefined from the apscheduler.util instead
                                         # more details and info please read the source code of add_job in AsyncIoScheduler
                                         next_run_time= next_run_time,
-                                        max_instances=3,
-                                        **cron_config)
+                                        misfire_grace_time=None,
+                                        seconds = reporting_interval.total_seconds())
 
             self.report_requests.append({'report_request_id': report_request_id,
                                         'report_to_follow': False,
@@ -703,40 +682,26 @@ class OpenADRClient:
                                         'dtstart': dtstart if report_interval else datetime.now(),
                                         'duration': duration if report_interval else timedelta(0),
                                         'job': job})
-            return True
         except Exception as err:
             logger.warning(f"Internal error in the create report fucntion: {err}")
 
 
-    async def created_report(self, response_payload, response_code=200):
+    async def created_report(self, response_payload):
     #perform oadrCreatedReport message back to VTN after report added into the pending_reports
         try:
-            if response_code ==452:
-                service = 'EiReport'
-                response = {'response_code': 452,
-                            'response_description': 'Not OK',
-                            'request_id': response_payload['request_id']
-                            }
-                msg = self._create_message('oadrCreatedReport', response=response, ven_id=self.ven_id)
-                self.mutex.acquire()
-                await self._perform_request(service, msg)
-                self.mutex.release()
-            else:
-                service = 'EiReport'
-                print(response_payload)
-                request_id = response_payload['request_id']
-                # Send the oadrCreatedReport message
-                message_type = 'oadrCreatedReport'
-                message_payload = {'pending_reports': [{'report_request_id': utils.getmember(report, 'report_request_id')} for report in self.report_requests]}
-                message = self._create_message(message_type, response={'response_code': 200,
-                                                                    'response_description': 'OK',
-                                                                    'request_id': request_id},
-                                                                    ven_id=self.ven_id,
-                                                                    **message_payload)
-                print('begin to send the oadrCreatedReport')
-                self.mutex.acquire()
-                await self._perform_request(service, message)
-                self.mutex.release()
+            service = 'EiReport'
+            print(response_payload)
+            request_id = response_payload['request_id']
+            # Send the oadrCreatedReport message
+            message_type = 'oadrCreatedReport'
+            message_payload = {'pending_reports': [{'report_request_id': utils.getmember(report, 'report_request_id')} for report in self.report_requests]}
+            message = self._create_message(message_type, response={'response_code': 200,
+                                                                'response_description': 'OK',
+                                                                'request_id': request_id},
+                                                                ven_id=self.ven_id,
+                                                                **message_payload)
+            print('begin to send the oadrCreatedReport')
+            await self._perform_request(service, message)
             
         except Exception as err:
             logger.warning(f"Internal error in created report funciton: {err}")
@@ -760,7 +725,7 @@ class OpenADRClient:
         report = utils.find_by(self.reports, 'report_specifier_id', report_specifier_id)
         dtstart = report_request['dtstart']
         data_collection_mode = report.data_collection_mode
-
+        report_name = asdict(report)['report_name']
         if report_request_id in self.incomplete_reports:
             logger.debug("We were already compiling this report")
             outgoing_report = self.incomplete_reports[report_request_id]
@@ -806,17 +771,17 @@ class OpenADRClient:
                     result = [(datetime.now(timezone.utc), result)]
                 for _ , value in result:
                     logger.info(f"Adding {dtstart}, {value} to report")
-                    if granularity.total_seconds()>0:
+                    if granularity.total_seconds()>0 and report_name=='TELEMETRY_USAGE':
                         report_payload = objects.ReportPayload(r_id=r_id, value=value)
+                        interval_start = dtstart
                         for i in range(int(report_back_duration.total_seconds()//granularity.total_seconds())):
                             print('after the 2 min adjust, the dtstart is: ')
                             print(dtstart)
-                            intervals.append(objects.ReportInterval(dtstart=dtstart,
+                            intervals.append(objects.ReportInterval(dtstart=interval_start,
                                                                     duration= report_request['duration'] if report_request['duration'] else timedelta(0),
                                                                     report_payload=report_payload))
-                            dtstart = dtstart + granularity
-                            report_request['dtstart'] = dtstart
-                            
+                            interval_start = interval_start + granularity
+
                     else:
                         report_payload = objects.ReportPayload(r_id=r_id, value=value)
                         intervals.append(objects.ReportInterval(dtstart=dtstart,
@@ -875,9 +840,9 @@ class OpenADRClient:
                                                                'request_id':request_id},
                                                             ven_id=self.ven_id,
                                                             **message_payload)
-        self.mutex.acquire()
+
         await self._perform_request(service, message)
-        self.mutex.release()
+
     
     
     
@@ -901,7 +866,12 @@ class OpenADRClient:
                 print('Did we ever get a report from the pending_reports queue')
                 print(report)
                 ##If this is not a one shot report and it has expired. we remove the job and don't send updateReport
+                print(report['dtstart'])
+                print(report['duration'])
+                print(report['dtstart']+report['duration'])
+                print(datetime.now(timezone.utc))
                 if report['duration']!=timedelta(0) and report['dtstart']+report['duration'] < datetime.now(timezone.utc):
+                    print('Did we ever cancel the report????')
                     self._cancel_report(report['report_request_id'])
                 else:
                     service = 'EiReport'
@@ -913,9 +883,7 @@ class OpenADRClient:
                     try:
                         print('Did we send the oadrUpdateReport message???')
                         print(message)
-                        self.mutex.acquire()
                         response_type, response_payload = await self._perform_request(service, message)
-                        self.mutex.release()
                     except Exception as err:
                         logger.error(f"Unable to send the report to the VTN. Error: {err}")
                     else:
@@ -973,9 +941,8 @@ class OpenADRClient:
                                    response={'response_code': response_code,
                                              'response_description': response_description,
                                              'request_id': request_id})
-        self.mutex.acquire()
         await self._perform_request(service, msg)
-        self.mutex.release()
+
 
     ###########################################################################
     #                                                                         #
@@ -984,12 +951,13 @@ class OpenADRClient:
     ###########################################################################
 
     async def _perform_request(self, service, message):
-        await self._ensure_client_session()
+        #self.mutex.acquire()
+        client_session = await self._ensure_client_session()
         logger.debug(f"Client is sending {message}")
         url = f"{self.vtn_url}/{service}"
         try:
             print('*********************************************')
-            async with self.client_session.post(url, data=message) as req:
+            async with client_session.post(url, data=message) as req:
                 content = await req.read()
                 if req.status != HTTPStatus.OK:
                     logger.warning(f"Non-OK status {req.status} when performing a request to {url} "
@@ -1028,8 +996,9 @@ class OpenADRClient:
                 logger.warning("We got a non-OK OpenADR response from the server: "
                                f"{message_payload['response']['response_code']}: "
                                f"{message_payload['response']['response_description']}")
-        await self.client_session.close()
-        self.client_session = None
+        await client_session.close()
+        #self.client_session = None
+        #self.mutex.release()
         return message_type, message_payload
 
     async def _on_event(self, message):
@@ -1091,9 +1060,7 @@ class OpenADRClient:
                                            event_responses=event_responses,
                                            ven_id=self.ven_id)
             service = 'EiEvent'
-            self.mutex.acquire()
             response_type, response_payload = await self._perform_request(service, message)
-            self.mutex.release()
             logger.info(response_type, response_payload)
         else:
             logger.info("Not sending any event responses, because a response was not required/allowed by the VTN.")
@@ -1135,16 +1102,12 @@ class OpenADRClient:
 
         elif response_type == 'oadrCreateReport':
             print('recieve oadrCreateReport.....')
-            created = True
             if 'report_requests' in response_payload:
                 print('begin to create_report......')
                 for report_request in response_payload['report_requests']:
-                    created = created and await self.create_report(report_request)
+                    await self.create_report(report_request)
             print('begin to created_report.....')
-            if not created:
-                await self.created_report(response_payload, 452)
-            else:
-                await self.created_report(response_payload)
+            await self.created_report(response_payload)
                     
 
         elif response_type == 'oadrRegisterReport':
@@ -1168,14 +1131,14 @@ class OpenADRClient:
         #await self._poll()
 
     async def _ensure_client_session(self):
-        if not self.client_session:
-            headers = {'content-type': 'application/xml'}
-            if self.cert_path:
-                ssl_context = ssl.create_default_context(cafile=self.ca_file,
-                                                         purpose=ssl.Purpose.CLIENT_AUTH)
-                ssl_context.load_cert_chain(self.cert_path, self.key_path, self.passphrase)
-                ssl_context.check_hostname = False
-                connector = aiohttp.TCPConnector(ssl=ssl_context)
-                self.client_session = aiohttp.ClientSession(connector=connector, headers=headers)
-            else:
-                self.client_session = aiohttp.ClientSession(headers=headers)
+        headers = {'content-type': 'application/xml'}
+        if self.cert_path:
+            ssl_context = ssl.create_default_context(cafile=self.ca_file,
+                                                        purpose=ssl.Purpose.CLIENT_AUTH)
+            ssl_context.load_cert_chain(self.cert_path, self.key_path, self.passphrase)
+            ssl_context.check_hostname = False
+            connector = aiohttp.TCPConnector(ssl=ssl_context)
+            client_session = aiohttp.ClientSession(connector=connector, headers=headers)
+        else:
+            client_session = aiohttp.ClientSession(headers=headers)
+        return client_session
