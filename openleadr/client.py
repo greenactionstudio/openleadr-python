@@ -81,7 +81,6 @@ class OpenADRClient:
         self.poll_frequency = None
         self.vtn_fingerprint = vtn_fingerprint
         self.debug = debug
-        self.mutex = Lock()
 
         self.reports = []
         self.report_callbacks = {}              # Holds the callbacks for each specific report
@@ -681,26 +680,36 @@ class OpenADRClient:
                                         'dtstart': dtstart if report_interval else datetime.now(),
                                         'duration': duration if report_interval else timedelta(0),
                                         'job': job})
+            return True
         except Exception as err:
             logger.warning(f"Internal error in the create report fucntion: {err}")
 
 
-    async def created_report(self, response_payload):
+    async def created_report(self, response_payload, status_code):
     #perform oadrCreatedReport message back to VTN after report added into the pending_reports
         try:
-            service = 'EiReport'
-            print(response_payload)
-            request_id = response_payload['request_id']
-            # Send the oadrCreatedReport message
-            message_type = 'oadrCreatedReport'
-            message_payload = {'pending_reports': [{'report_request_id': utils.getmember(report, 'report_request_id')} for report in self.report_requests]}
-            message = self._create_message(message_type, response={'response_code': 200,
-                                                                'response_description': 'OK',
-                                                                'request_id': request_id},
-                                                                ven_id=self.ven_id,
-                                                                **message_payload)
-            print('begin to send the oadrCreatedReport')
-            await self._perform_request(service, message)
+            if status_code ==452:
+                service = 'EiReport'
+                response = {'response_code': 452,
+                            'response_description': 'Not OK',
+                            'request_id': response_payload['request_id']
+                            }
+                msg = self._create_message('oadrCreatedReport', response=response, ven_id=self.ven_id)
+                await self._perform_request(service, msg)
+            else:
+                service = 'EiReport'
+                print(response_payload)
+                request_id = response_payload['request_id']
+                # Send the oadrCreatedReport message
+                message_type = 'oadrCreatedReport'
+                message_payload = {'pending_reports': [{'report_request_id': utils.getmember(report, 'report_request_id')} for report in self.report_requests]}
+                message = self._create_message(message_type, response={'response_code': 200,
+                                                                    'response_description': 'OK',
+                                                                    'request_id': request_id},
+                                                                    ven_id=self.ven_id,
+                                                                    **message_payload)
+                print('begin to send the oadrCreatedReport')
+                await self._perform_request(service, message)
             
         except Exception as err:
             logger.warning(f"Internal error in created report funciton: {err}")
@@ -1107,12 +1116,12 @@ class OpenADRClient:
 
         elif response_type == 'oadrCreateReport':
             print('recieve oadrCreateReport.....')
+            status_code = 200
             if 'report_requests' in response_payload:
-                print('begin to create_report......')
                 for report_request in response_payload['report_requests']:
-                    await self.create_report(report_request)
-            print('begin to created_report.....')
-            await self.created_report(response_payload)
+                    if not await self.create_report(report_request):
+                        status_code = 452
+            await self.created_report(response_payload, status_code)
                     
 
         elif response_type == 'oadrRegisterReport':
