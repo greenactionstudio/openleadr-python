@@ -19,6 +19,7 @@ nest_asyncio.apply()
 client = OpenADRClient(ven_name = 'myven', vtn_url='http://127.0.0.1:8080/OpenADR2/Simple/2.0b')
 client.add_report(report_callback,client.ven_id, report_name = 'TELEMETRY_STATUS')
 client.add_report(report_callback,client.ven_id, report_name = 'TELEMETRY_USAGE', measurement= MEASUREMENTS.POWER_REAL)
+#client.add_report(report_callback,client.ven_id, report_name = 'TELEMETRY_USAGE', measurement= MEASUREMENTS.ENERGY_REAL)
 app = Flask(__name__)
 
 @app.route('/home')

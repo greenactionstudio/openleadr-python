@@ -173,7 +173,7 @@ class OpenADRClient:
             self.scheduler.shutdown()
         if self.report_queue_task:
             self.report_queue_task.cancel()
-        await self.client_session.close()
+        #await self.client_session.close()
         await asyncio.sleep(0)
 
     def add_handler(self, handler, callback):
