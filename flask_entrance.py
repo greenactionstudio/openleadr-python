@@ -49,6 +49,12 @@ async def stop_server():
     await client.stop()
     return {'status': 200, 'body': 'The VEN has been stopped.'}
 
+@app.route('/register_reports')
+async def register_reports():
+    if client.reports:
+        await client.register_reports(client.reports)
+    return {'status': 200, 'body': 'The VEN has sent register report with metadata.'}
+
 
     
 

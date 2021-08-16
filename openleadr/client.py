@@ -541,35 +541,40 @@ class OpenADRClient:
         Tell the VTN about our reports. The VTN might respond with an
         oadrCreateReport message that tells us which reports are to be sent.
         """
-        request_id = utils.generate_id()
-        payload = {'request_id': request_id,
-                   'ven_id': self.ven_id,
-                   'reports': reports}
+        try:
+            for report in reports:
+                utils.setmember(report, 'created_date_time', datetime.now(timezone.utc))
+            request_id = utils.generate_id()
+            payload = {'request_id': request_id,
+                    'ven_id': self.ven_id,
+                    'reports': reports}
 
-        for report in payload['reports']:
-            utils.setmember(report, 'duration', timedelta(days = 365))
-            utils.setmember(report, 'report_request_id', 0)
+            for report in payload['reports']:
+                utils.setmember(report, 'duration', timedelta(days = 365))
+                utils.setmember(report, 'report_request_id', 0)
 
-        service = 'EiReport'
-        message = self._create_message('oadrRegisterReport', **payload)
-        response_type, response_payload = await self._perform_request(service, message)
-
-        # Handle the subscriptions that the VTN is interested in.
-        # We only send back the oadrCreatedReport here if we recieve any report_requests from oadrRegisteredReport
-        if 'report_requests' in response_payload:
-            for report_request in response_payload['report_requests']:
-                result = await self.create_report(report_request)
-            print(response_payload)
-            request_id = response_payload['response']['request_id']
-            # Send the oadrCreatedReport message
-            message_type = 'oadrCreatedReport'
-            message_payload = {'pending_reports': [{'report_request_id': utils.getmember(report, 'report_request_id')} for report in self.report_requests]}
-            message = self._create_message(message_type, response={'response_code': 200,
-                                                                'response_description': 'OK',
-                                                                'request_id': request_id},
-                                                                ven_id=self.ven_id,
-                                                                **message_payload)
+            service = 'EiReport'
+            message = self._create_message('oadrRegisterReport', **payload)
             response_type, response_payload = await self._perform_request(service, message)
+
+            # Handle the subscriptions that the VTN is interested in.
+            # We only send back the oadrCreatedReport here if we recieve any report_requests from oadrRegisteredReport
+            if 'report_requests' in response_payload:
+                for report_request in response_payload['report_requests']:
+                    result = await self.create_report(report_request)
+                print(response_payload)
+                request_id = response_payload['response']['request_id']
+                # Send the oadrCreatedReport message
+                message_type = 'oadrCreatedReport'
+                message_payload = {'pending_reports': [{'report_request_id': utils.getmember(report, 'report_request_id')} for report in self.report_requests]}
+                message = self._create_message(message_type, response={'response_code': 200,
+                                                                    'response_description': 'OK',
+                                                                    'request_id': request_id},
+                                                                    ven_id=self.ven_id,
+                                                                    **message_payload)
+                response_type, response_payload = await self._perform_request(service, message)
+        except Exception as err:
+            logger.warning(f"Internal error in the register reports fucntion: {err}")
 
 
     async def create_report(self, report_request):
@@ -611,7 +616,7 @@ class OpenADRClient:
                     logger.error(f"A non-existant report with r_id {r_id} "
                                 f"inside report with report_specifier_id {report_specifier_id} "
                                 f"was requested.")
-                    continue
+                    return False
 
                 # Check if the requested measurement exists and if the correct unit is requested
                 if 'measurement' in specifier_payload:
@@ -649,7 +654,10 @@ class OpenADRClient:
             if report_interval:
                 utc_dtstart = dtstart.replace(tzinfo = None)
                 local_dtstart = utc_dtstart.replace(tzinfo = pytz.utc).astimezone(self.local_timezone).replace(tzinfo=None)
-                next_run_time = local_dtstart+timedelta(seconds=4)
+                if report.report_name=='TELEMETRY_USAGE':
+                    next_run_time = local_dtstart+granularity
+                else:
+                    next_run_time = local_dtstart+timedelta(seconds=4)
             else:
                 next_run_time = undefined
             print('Next run time is: ')
@@ -660,7 +668,7 @@ class OpenADRClient:
                 print('this is a one shot report')
                 reporting_interval = timedelta(days=1)
                 next_run_time = datetime.now()+timedelta(seconds=4)
-                ## add 6 seconds in case we missed this job
+                ## add 4 seconds in case we missed this job
             job = self.scheduler.add_job(func=callback,
                                         trigger='interval',
                                         id = report_request_id,
@@ -878,14 +886,18 @@ class OpenADRClient:
                 report = asdict(await self.pending_reports.get())
                 print('Did we ever get a report from the pending_reports queue')
                 print(report)
-                ##If this is not a one shot report and it has expired. we remove the job and don't send updateReport
                 print(report['dtstart'])
                 print(report['duration'])
                 print(report['dtstart']+report['duration'])
                 print(datetime.now(timezone.utc))
+                ##If this is not a one shot report and it has expired. we remove the job and don't send updateReport
                 if report['duration']!=timedelta(0) and report['dtstart']+report['duration'] < datetime.now(timezone.utc):
                     print('Did we ever cancel the report????')
-                    self._cancel_report(report['report_request_id'])
+                    report_request_id = report['report_request_id']
+                    job_id = report['report_request_id']
+                    report_request = utils.find_by(self.report_requests, 'report_request_id', report_request_id)
+                    self.report_requests.remove(report_request)
+                    self._cancel_report(job_id)
                 else:
                     service = 'EiReport'
                     print('Before parse create_message of oadrUpdateReport message')
@@ -900,13 +912,25 @@ class OpenADRClient:
                     except Exception as err:
                         logger.error(f"Unable to send the report to the VTN. Error: {err}")
                     else:
-                        if response_type=='oadrCancelReport':
-                            await self.cancel_report(response_payload['cancel_report'])
-                        
+                        #If VTN optinally cancel the report after this updateReport(piggyBack cancellation)
+                        if 'cancel_report' in response_payload:
+                            report_request_id = response_payload['cancel_report']['report_request_id']
+                            report_to_follow = response_payload['cancel_report']['report_to_follow']
+                            job_id = report_request_id
+                            report_request = utils.find_by(self.report_requests, 'report_request_id', report_request_id)
+                            if not report_to_follow:
+                                self._cancel_report(job_id)
+                                self.report_requests.remove(report_request)
+                            else:
+                                report_request['report_to_follow'] = True
                         #If this is a one shot report. We remove this job after we send out the updateReport
                         if report['report_back_duration']==timedelta(0):
                             print('we cancel the one shot report here')
-                            self._cancel_report(report['report_request_id'])
+                            report_request_id = report['report_request_id']
+                            job_id = report['report_request_id']
+                            report_request = utils.find_by(self.report_requests, 'report_request_id', report_request_id)
+                            self.report_requests.remove(report_request)
+                            self._cancel_report(job_id)
         except Exception as err:
             logger.warning(f"Internal error in the report queue worker fucntion: {err}")
 
@@ -982,6 +1006,7 @@ class OpenADRClient:
             # Could not connect to server
             logger.error(f"Could not connect to server with URL {self.vtn_url}:")
             logger.error(f"{err.__class__.__name__}: {str(err)}")
+            await client_session.close()
             return None, {}
         except Exception as err:
             logger.error(f"Request error {err.__class__.__name__}:{err}")
@@ -1117,9 +1142,12 @@ class OpenADRClient:
         elif response_type == 'oadrCreateReport':
             print('recieve oadrCreateReport.....')
             status_code = 200
+            print(response_payload)
             if 'report_requests' in response_payload:
                 for report_request in response_payload['report_requests']:
+                    print('How many reports we created?')
                     if not await self.create_report(report_request):
+                        print('did we get a invalid report request?')
                         status_code = 452
             await self.created_report(response_payload, status_code)
                     
