@@ -536,7 +536,7 @@ class OpenADRClient:
                                                             request_id=message['request_id'])
         await self._perform_request(service, message)
         
-    async def register_reports(self, reports):
+    async def register_reports(self, reports, report_request_id = 0):
         """
         Tell the VTN about our reports. The VTN might respond with an
         oadrCreateReport message that tells us which reports are to be sent.
@@ -546,12 +546,13 @@ class OpenADRClient:
                 utils.setmember(report, 'created_date_time', datetime.now(timezone.utc))
             request_id = utils.generate_id()
             payload = {'request_id': request_id,
-                    'ven_id': self.ven_id,
-                    'reports': reports}
+                       'report_request_id': report_request_id if report_request_id!=0 else None,
+                       'ven_id': self.ven_id,
+                       'reports': reports}
 
             for report in payload['reports']:
                 utils.setmember(report, 'duration', timedelta(days = 365))
-                utils.setmember(report, 'report_request_id', 0)
+                utils.setmember(report, 'report_request_id', report_request_id)
 
             service = 'EiReport'
             message = self._create_message('oadrRegisterReport', **payload)
@@ -588,6 +589,66 @@ class OpenADRClient:
         print('The report request is:...............')
         print(report_request)
         try:
+            if report_request['report_specifier']['report_specifier_id']=='METADATA':
+                await self.register_reports(self.reports, report_request_id=report_request['report_request_id'])
+                while self.pending_reports.qsize()!=0:
+                    self.pending_reports.get()
+                self.report_requests = []
+                #self.report_queue_task
+                report_request_id = report_request['report_request_id']
+                report_specifier_id = report_request['report_specifier']['report_specifier_id']
+                report_back_duration = report_request['report_specifier'].get('report_back_duration')
+                granularity = report_request['report_specifier']['granularity']
+                print(granularity)
+                report_interval = report_request['report_specifier'].get('report_interval')
+                if report_interval:
+                    dtstart = report_interval['properties']['dtstart']
+                    duration = report_interval['properties']['duration']
+                    print(dtstart)
+                    print(duration)
+                granularity = timedelta(0)
+                requested_r_ids = [0]
+                callback = partial(self.update_report, report_request_id=report_request_id)
+                reporting_interval = report_back_duration
+                if report_interval:
+                    utc_dtstart = dtstart.replace(tzinfo = None)
+                    local_dtstart = utc_dtstart.replace(tzinfo = pytz.utc).astimezone(self.local_timezone).replace(tzinfo=None)
+                    next_run_time = local_dtstart+timedelta(seconds=4)
+                else:
+                    next_run_time = undefined
+                print('Next run time is: ')
+                print(next_run_time)
+                
+                ##if this is a one shot report, set the next_run_time as now and set interval as one day
+                if reporting_interval == timedelta(0):
+                    print('this is a one shot report')
+                    reporting_interval = timedelta(days=1)
+                    next_run_time = datetime.now()+timedelta(seconds=4)
+                    ## add 4 seconds in case we missed this job
+                job = self.scheduler.add_job(func=callback,
+                                            trigger='interval',
+                                            id = report_request_id,
+                                            # change I made here, Undefined from jinja2 is not a correct accepted type here for next_run_time
+                                            # Use the undefined from the apscheduler.util instead
+                                            # more details and info please read the source code of add_job in AsyncIoScheduler
+                                            next_run_time= next_run_time,
+                                            misfire_grace_time=None,
+                                            seconds = reporting_interval.total_seconds())
+
+                self.report_requests.append({'report_request_id': report_request_id,
+                                            'report_to_follow': False,
+                                            'report_specifier_id': report_specifier_id,
+                                            'report_back_duration': report_back_duration,
+                                            'r_ids': requested_r_ids,
+                                            'granularity': granularity,
+                                            'dtstart': dtstart if report_interval else datetime.now(),
+                                            'duration': duration if report_interval else timedelta(0),
+                                            'job': job})
+                
+                
+                
+                
+                return True
             report_request_id = report_request['report_request_id']
             report_specifier_id = report_request['report_specifier']['report_specifier_id']
             report_back_duration = report_request['report_specifier'].get('report_back_duration')
