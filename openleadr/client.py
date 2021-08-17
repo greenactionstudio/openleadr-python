@@ -593,6 +593,8 @@ class OpenADRClient:
                 await self.register_reports(self.reports, report_request_id=report_request['report_request_id'])
                 while self.pending_reports.qsize()!=0:
                     self.pending_reports.get()
+                for tmp_report in self.report_requests:
+                    self._cancel_report(tmp_report['report_request_id'])
                 self.report_requests = []
                 #self.report_queue_task
                 report_request_id = report_request['report_request_id']
