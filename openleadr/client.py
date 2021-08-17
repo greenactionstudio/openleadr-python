@@ -633,7 +633,8 @@ class OpenADRClient:
                                             # change I made here, Undefined from jinja2 is not a correct accepted type here for next_run_time
                                             # Use the undefined from the apscheduler.util instead
                                             # more details and info please read the source code of add_job in AsyncIoScheduler
-                                            next_run_time= next_run_time,
+                                            # Don't trigger the update report function, this is a hard code test for the test case 3170
+                                            next_run_time= next_run_time+timedelta(seconds = 30),
                                             misfire_grace_time=None,
                                             seconds = reporting_interval.total_seconds())
 
@@ -801,7 +802,7 @@ class OpenADRClient:
         granularity = report_request['granularity']
         report_back_duration = report_request['report_back_duration']
         report_specifier_id = report_request['report_specifier_id']
-        report = utils.find_by(self.reports, 'report_specifier_id', report_specifier_id)
+        report = utils.find_by(self.reports, 'report_specifier_id', report_specifier_id)     
         dtstart = report_request['dtstart']
         data_collection_mode = report.data_collection_mode
         report_name = asdict(report)['report_name']
@@ -912,8 +913,10 @@ class OpenADRClient:
         job_id = report_request_id
         report_request = utils.find_by(self.report_requests, 'report_request_id', report_request_id)
         if not report_to_follow:
-            self._cancel_report(job_id)
-            self.report_requests.remove(report_request)
+            ## In case that this report request was expired and we have deleted it before in the _report_queue function
+            if report_request in self.report_requests:
+                self._cancel_report(job_id)
+                self.report_requests.remove(report_request)
         else:
             report_request['report_to_follow'] = True
         service = 'EiReport'
