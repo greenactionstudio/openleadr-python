@@ -1,7 +1,5 @@
 from logging import debug, exception
-from openleadr.messaging import parse_message
 from flask import Flask, request
-from xml.etree.ElementTree import fromstring, XML
 import asyncio
 import threading
 import nest_asyncio
@@ -63,7 +61,7 @@ def client_run():
 
 
 if __name__ =="__main__":
-    t1 = threading.Thread(target=app.run)
+    t1 = threading.Thread(target=app.run, kwargs={'host':'0.0.0.0'})
     t2 = threading.Thread(target=client_run)
     t1.start()
     t2.start()

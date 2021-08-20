@@ -1,6 +1,6 @@
 asyncio
 pytz
-tzlocal
+tzlocal==2.0
 datetime
 apscheduler
 aiohttp
@@ -12,6 +12,6 @@ jinja2
 uuid
 typing
 aiohttp
-flask
+flask==2.0
 nest_asyncio
 dict2xml

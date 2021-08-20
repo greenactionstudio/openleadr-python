@@ -10,7 +10,7 @@ usr$ sudo docker build -t openleader-python .
 
 # step3.(if test on a local host)
 
-usr$ sudo docker run --network='host' -it openleader-python
+usr$ sudo docker run -it -p 5000:5000 openleader-python
 
 # ====================================================================================================
 
@@ -32,8 +32,12 @@ usr$ source python_env/bin/activate
 
 # Install our packeages once in the requirements.txt
 
-usr$ pip3 install -r dev_requiremnets.txt
+(python_env)usr$ pip3 install -r dev_requiremnets.txt
+
+# Running the VEN server
+
+(python_env)usr$ python main.py
 
 # Command for exiting python_env
 
-usr$ deactivate
+(python_env)usr$ deactivate
