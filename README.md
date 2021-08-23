@@ -20,7 +20,7 @@ usr$ sudo docker run -it -p 5000:5000 openleader-python
 
 usr$ pip3 install virtualenv
 
-# Set the virtualenv version, notice that we can only set the version number we have at the system level
+# Set the virtualenv version, notice that we can only set the python version number we have at the system level
 
 # Besides, asyncio only supports python version which is lower than or equal to 3.8.0
 
